@@ -352,7 +352,7 @@ export default function Sidebar({ sessions, selectedId, onSelect, activeView, on
 
       {/* Navigation */}
       <nav className="p-2 border-b border-gray-800 space-y-1">
-        {['sessions', 'tasks', 'gossip', 'flows'].map((view) => (
+        {['sessions', 'tasks', 'gossip', 'flows', 'tools'].map((view) => (
           <button
             key={view}
             onClick={() => onViewChange(view)}

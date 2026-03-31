@@ -17,6 +17,7 @@ import { loadFlowsFromDisk } from './flow/loader.js';
 import { registerNotifyRoutes } from './notify/router.js';
 import { registerDirRoutes } from './dirs/router.js';
 import { registerTagRoutes } from './tags/router.js';
+import { registerToolRoutes } from './mcp/router.js';
 
 // Ensure tables exist
 import { db } from './db/connection.js';
@@ -183,6 +184,7 @@ async function main() {
   registerNotifyRoutes(app, notifier);
   registerDirRoutes(app);
   registerTagRoutes(app);
+  registerToolRoutes(app, sessionManager);
 
   // WebSocket endpoint
   app.get('/ws', { websocket: true }, (socket) => {

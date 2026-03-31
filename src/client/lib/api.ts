@@ -139,3 +139,25 @@ export const getTagAssignments = () =>
 export const getRepos = () => request<DirEntry[]>('/dirs/repos');
 export const browseDirs = (path?: string) =>
   request<BrowseResult>(`/dirs/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`);
+
+// Tools & MCP
+export interface MCPServerInfo {
+  name: string;
+  source: 'friendlist' | 'user-configured';
+  transport: string;
+  command?: string;
+  tools: { name: string; description: string }[];
+}
+export interface ToolInfo {
+  name: string;
+  description: string;
+  source: string;
+}
+export interface ToolUsageResponse {
+  aggregate: Record<string, number>;
+  bySession: { sessionId: string; sessionName: string; usage: Record<string, number> }[];
+}
+export const getMCPServers = () => request<MCPServerInfo[]>('/tools/servers');
+export const getToolCatalog = () => request<ToolInfo[]>('/tools/catalog');
+export const getToolUsage = (sessionId?: string) =>
+  request<ToolUsageResponse>(`/tools/usage${sessionId ? `?sessionId=${sessionId}` : ''}`);

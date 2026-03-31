@@ -110,6 +110,46 @@ export function getSessionHistory(realClaudeSessionId: string, cwd: string): His
   return messages;
 }
 
+/**
+ * Count tool usage from a Claude CLI JSONL file.
+ * Returns a map of tool name → invocation count.
+ */
+export function getSessionToolUsage(realClaudeSessionId: string, cwd: string): Record<string, number> {
+  const filePath = getJsonlPath(realClaudeSessionId, cwd);
+
+  let raw: string;
+  try {
+    raw = readFileSync(filePath, 'utf-8');
+  } catch {
+    return {};
+  }
+
+  const counts: Record<string, number> = {};
+
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+
+    let record: JSONLRecord;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    if (record.type !== 'assistant') continue;
+    const content = record.message?.content;
+    if (!Array.isArray(content)) continue;
+
+    for (const block of content) {
+      if (block.type === 'tool_use' && block.name) {
+        counts[block.name] = (counts[block.name] ?? 0) + 1;
+      }
+    }
+  }
+
+  return counts;
+}
+
 export interface DiscoveredSession {
   realClaudeSessionId: string;
   cwd: string;

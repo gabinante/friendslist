@@ -8,6 +8,7 @@ import SessionsTable from './components/SessionsTable.js';
 import TaskBoard from './components/TaskBoard.js';
 import GossipPane from './components/GossipPane.js';
 import FlowEditor from './components/FlowEditor.js';
+import ToolsPane from './components/ToolsPane.js';
 import type { WSEvent } from '../shared/types.js';
 import type { ChatMessage } from './components/SessionPanel.js';
 
@@ -110,6 +111,7 @@ export default function App() {
           {activeView === 'tasks' && <TaskBoard />}
           {activeView === 'gossip' && <GossipPane sessions={sessions} />}
           {activeView === 'flows' && <FlowEditor />}
+          {activeView === 'tools' && <ToolsPane />}
         </div>
       </div>
     </div>
