@@ -37,6 +37,8 @@ export interface SessionInfo {
   createdAt: string;
   lastActivityAt: string;
   currentTaskId: string | null;
+  tracked: boolean;
+  summary: string | null;
 }
 
 export interface CreateSessionRequest {
@@ -46,8 +48,16 @@ export interface CreateSessionRequest {
   model?: string;
 }
 
+export interface ImageAttachment {
+  /** base64-encoded image data (no data-url prefix) */
+  data: string;
+  /** MIME type, e.g. "image/png" */
+  mediaType: string;
+}
+
 export interface SendPromptRequest {
   prompt: string;
+  images?: ImageAttachment[];
 }
 
 export interface TaskInfo {

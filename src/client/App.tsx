@@ -1,9 +1,10 @@
 import React, { useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useSessions } from './hooks/useSessions.js';
+import { useSessions, useAllSessions } from './hooks/useSessions.js';
 import { useWebSocket } from './hooks/useWebSocket.js';
 import Sidebar from './components/Sidebar.js';
 import SessionPanel from './components/SessionPanel.js';
+import SessionsTable from './components/SessionsTable.js';
 import TaskBoard from './components/TaskBoard.js';
 import GossipPane from './components/GossipPane.js';
 import FlowEditor from './components/FlowEditor.js';
@@ -13,6 +14,7 @@ import type { ChatMessage } from './components/SessionPanel.js';
 export default function App() {
   const qc = useQueryClient();
   const { data: sessions = [] } = useSessions();
+  const { data: allSessions = [] } = useAllSessions();
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState('sessions');
   const [messagesMap, setMessagesMap] = useState<Record<string, ChatMessage[]>>({});
@@ -53,7 +55,7 @@ export default function App() {
   }, [qc]);
 
   const { connected } = useWebSocket(handleWSEvent);
-  const selectedSession = sessions.find(s => s.id === selectedSessionId);
+  const selectedSession = allSessions.find(s => s.id === selectedSessionId);
 
   const addMessage = useCallback((sessionId: string, msg: ChatMessage) => {
     setMessagesMap(prev => ({
@@ -71,9 +73,12 @@ export default function App() {
       <Sidebar
         sessions={sessions}
         selectedId={selectedSessionId}
-        onSelect={setSelectedSessionId}
+        onSelect={(id) => { setSelectedSessionId(id); setActiveView('sessions'); }}
         activeView={activeView}
-        onViewChange={setActiveView}
+        onViewChange={(view) => {
+          setActiveView(view);
+          if (view === 'sessions') setSelectedSessionId(null);
+        }}
       />
 
       <div className="flex-1 flex flex-col min-w-0">
@@ -97,9 +102,9 @@ export default function App() {
                 onClearStreaming={() => clearStreaming(selectedSession.id)}
               />
             ) : (
-              <div className="flex items-center justify-center h-full text-gray-600">
-                Select a session or create a new one
-              </div>
+              <SessionsTable
+                onSelectSession={(id) => { setSelectedSessionId(id); }}
+              />
             )
           )}
           {activeView === 'tasks' && <TaskBoard />}

@@ -16,6 +16,7 @@ import { registerFlowRoutes } from './flow/router.js';
 import { loadFlowsFromDisk } from './flow/loader.js';
 import { registerNotifyRoutes } from './notify/router.js';
 import { registerDirRoutes } from './dirs/router.js';
+import { registerTagRoutes } from './tags/router.js';
 
 // Ensure tables exist
 import { db } from './db/connection.js';
@@ -33,8 +34,22 @@ db.run(sql`CREATE TABLE IF NOT EXISTS sessions (
   model TEXT NOT NULL DEFAULT 'sonnet',
   created_at TEXT NOT NULL,
   last_activity_at TEXT NOT NULL,
-  current_task_id TEXT
+  current_task_id TEXT,
+  real_claude_session_id TEXT,
+  tracked INTEGER NOT NULL DEFAULT 1,
+  summary TEXT
 )`);
+
+// Migration: add real_claude_session_id column to existing databases
+try {
+  db.run(sql`ALTER TABLE sessions ADD COLUMN real_claude_session_id TEXT`);
+} catch {
+  // Column already exists
+}
+
+// Migrate existing sessions table to add new columns
+try { db.run(sql`ALTER TABLE sessions ADD COLUMN tracked INTEGER NOT NULL DEFAULT 1`); } catch (_) { /* already exists */ }
+try { db.run(sql`ALTER TABLE sessions ADD COLUMN summary TEXT`); } catch (_) { /* already exists */ }
 
 db.run(sql`CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
@@ -95,6 +110,20 @@ db.run(sql`CREATE TABLE IF NOT EXISTS flow_steps (
   completed_at TEXT
 )`);
 
+db.run(sql`CREATE TABLE IF NOT EXISTS tags (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  color TEXT NOT NULL,
+  created_at TEXT NOT NULL
+)`);
+
+db.run(sql`CREATE TABLE IF NOT EXISTS session_tags (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  tag_id TEXT NOT NULL,
+  UNIQUE(session_id, tag_id)
+)`);
+
 db.run(sql`CREATE TABLE IF NOT EXISTS notification_preferences (
   id TEXT PRIMARY KEY,
   channel TEXT NOT NULL,
@@ -153,6 +182,7 @@ async function main() {
   registerFlowRoutes(app, flowEngine);
   registerNotifyRoutes(app, notifier);
   registerDirRoutes(app);
+  registerTagRoutes(app);
 
   // WebSocket endpoint
   app.get('/ws', { websocket: true }, (socket) => {

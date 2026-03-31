@@ -2,7 +2,11 @@ import { spawn, ChildProcess } from 'child_process';
 import { createInterface } from 'readline';
 import { EventEmitter } from 'events';
 import { resolve } from 'path';
+import { writeFileSync, mkdirSync, unlinkSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import type { ClaudeStreamMessage, SessionConfig } from './types.js';
+import type { ImageAttachment } from '../../shared/types.js';
 
 /** Path to the Friendlist MCP server script */
 const MCP_SERVER_PATH = resolve(import.meta.dirname, '../mcp/server.ts');
@@ -110,6 +114,7 @@ export function spawnClaudeOneShot(config: {
   cwd: string;
   model: string;
   prompt: string;
+  images?: ImageAttachment[];
   permissionMode?: string;
 }): ClaudeProcess {
   const proc = new ClaudeProcess({
@@ -136,8 +141,35 @@ export function spawnClaudeOneShot(config: {
     },
   });
 
+  // Write images to temp files so Claude can read them via its Read tool
+  const tempImagePaths: string[] = [];
+  let prompt = config.prompt;
+
+  if (config.images && config.images.length > 0) {
+    const tempDir = join(tmpdir(), 'friendlist-images');
+    mkdirSync(tempDir, { recursive: true });
+
+    const ext: Record<string, string> = {
+      'image/png': '.png',
+      'image/jpeg': '.jpg',
+      'image/gif': '.gif',
+      'image/webp': '.webp',
+    };
+
+    for (let i = 0; i < config.images.length; i++) {
+      const img = config.images[i];
+      const suffix = ext[img.mediaType] ?? '.png';
+      const filePath = join(tempDir, `${config.sessionId}-${Date.now()}-${i}${suffix}`);
+      writeFileSync(filePath, Buffer.from(img.data, 'base64'));
+      tempImagePaths.push(filePath);
+    }
+
+    const imageRefs = tempImagePaths.map((p) => p).join('\n');
+    prompt = `${config.prompt}\n\n[The user has attached ${tempImagePaths.length} image(s). Read them with the Read tool before responding.]\n${imageRefs}`;
+  }
+
   const args = [
-    '-p', config.prompt,
+    '-p', prompt,
     '--output-format', 'stream-json',
     '--verbose',
     '--model', config.model,
@@ -157,6 +189,15 @@ export function spawnClaudeOneShot(config: {
     env: { ...process.env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+
+  // Clean up temp images when process exits
+  if (tempImagePaths.length > 0) {
+    child.on('exit', () => {
+      for (const p of tempImagePaths) {
+        try { unlinkSync(p); } catch { /* ignore */ }
+      }
+    });
+  }
 
   // Manually wire up the same event handling
   if (child.stdout) {

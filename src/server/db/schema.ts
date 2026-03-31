@@ -12,6 +12,9 @@ export const sessions = sqliteTable('sessions', {
   createdAt: text('created_at').notNull(),
   lastActivityAt: text('last_activity_at').notNull(),
   currentTaskId: text('current_task_id'),
+  realClaudeSessionId: text('real_claude_session_id'),
+  tracked: integer('tracked', { mode: 'boolean' }).notNull().default(true),
+  summary: text('summary'),
 });
 
 export const tasks = sqliteTable('tasks', {
@@ -71,6 +74,19 @@ export const flowSteps = sqliteTable('flow_steps', {
   output: text('output'),
   startedAt: text('started_at'),
   completedAt: text('completed_at'),
+});
+
+export const tags = sqliteTable('tags', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  color: text('color').notNull(),
+  createdAt: text('created_at').notNull(),
+});
+
+export const sessionTags = sqliteTable('session_tags', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').notNull(),
+  tagId: text('tag_id').notNull(),
 });
 
 export const notificationPreferences = sqliteTable('notification_preferences', {

@@ -4,8 +4,9 @@ import { eq } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import { sessions } from '../db/schema.js';
 import { spawnClaudeOneShot } from './process.js';
+import { discoverClaudeSessions } from './history.js';
 import type { SessionConfig, SessionState, ClaudeStreamMessage } from './types.js';
-import type { SessionInfo, SessionStatus, CreateSessionRequest } from '../../shared/types.js';
+import type { SessionInfo, SessionStatus, CreateSessionRequest, ImageAttachment } from '../../shared/types.js';
 
 export class SessionManager extends EventEmitter {
   private activeSessions = new Map<string, SessionState>();
@@ -13,6 +14,7 @@ export class SessionManager extends EventEmitter {
   constructor() {
     super();
     this.loadFromDb();
+    this.importDiscoveredSessions();
   }
 
   private loadFromDb(): void {
@@ -36,11 +38,80 @@ export class SessionManager extends EventEmitter {
         },
         status: 'stopped',
         pid: null,
+        createdAt: new Date(row.createdAt),
         lastActivityAt: new Date(row.lastActivityAt),
         currentTaskId: row.currentTaskId,
         outputBuffer: [],
-        realClaudeSessionId: null,
+        realClaudeSessionId: row.realClaudeSessionId ?? null,
+        tracked: row.tracked ?? true,
+        summary: row.summary ?? null,
       });
+    }
+  }
+
+  /**
+   * Scan Claude CLI JSONL files and import any sessions not already tracked.
+   * This allows friendlist to surface sessions created outside of friendlist
+   * and backfill realClaudeSessionId for existing sessions.
+   */
+  private importDiscoveredSessions(): void {
+    const discovered = discoverClaudeSessions();
+    const knownRealIds = new Set<string>();
+    for (const state of this.activeSessions.values()) {
+      if (state.realClaudeSessionId) knownRealIds.add(state.realClaudeSessionId);
+      // Also track claudeSessionId since imports set it to realClaudeSessionId
+      knownRealIds.add(state.config.claudeSessionId);
+    }
+
+    let imported = 0;
+    for (const d of discovered) {
+      if (knownRealIds.has(d.realClaudeSessionId)) continue;
+
+      const id = uuidv4();
+      const config: SessionConfig = {
+        id,
+        claudeSessionId: d.realClaudeSessionId,
+        name: d.name,
+        cwd: d.cwd,
+        model: d.model,
+      };
+
+      const state: SessionState = {
+        config,
+        status: 'stopped',
+        pid: null,
+        createdAt: new Date(d.createdAt),
+        lastActivityAt: new Date(d.lastActivityAt),
+        currentTaskId: null,
+        outputBuffer: [],
+        realClaudeSessionId: d.realClaudeSessionId,
+        tracked: false,
+        summary: null,
+      };
+
+      db.insert(sessions).values({
+        id,
+        claudeSessionId: d.realClaudeSessionId,
+        name: d.name,
+        alias: null,
+        status: 'stopped',
+        cwd: d.cwd,
+        pid: null,
+        model: d.model,
+        createdAt: d.createdAt,
+        lastActivityAt: d.lastActivityAt,
+        currentTaskId: null,
+        realClaudeSessionId: d.realClaudeSessionId,
+        tracked: false,
+        summary: null,
+      }).run();
+
+      this.activeSessions.set(id, state);
+      imported++;
+    }
+
+    if (imported > 0) {
+      console.log(`Discovered and imported ${imported} Claude session(s) from filesystem`);
     }
   }
 
@@ -62,10 +133,13 @@ export class SessionManager extends EventEmitter {
       config,
       status: 'idle',
       pid: null,
+      createdAt: new Date(),
       lastActivityAt: new Date(),
       currentTaskId: null,
       outputBuffer: [],
       realClaudeSessionId: null,
+      tracked: true,
+      summary: null,
     };
 
     db.insert(sessions).values({
@@ -89,13 +163,23 @@ export class SessionManager extends EventEmitter {
     return info;
   }
 
-  listSessions(): SessionInfo[] {
-    return Array.from(this.activeSessions.values()).map(s => this.toSessionInfo(s));
+  listSessions(filter?: { tracked?: boolean }): SessionInfo[] {
+    let values = Array.from(this.activeSessions.values());
+    if (filter?.tracked !== undefined) {
+      values = values.filter(s => s.tracked === filter.tracked);
+    }
+    return values.map(s => this.toSessionInfo(s));
   }
 
   getSession(id: string): SessionInfo | null {
     const state = this.activeSessions.get(id);
     return state ? this.toSessionInfo(state) : null;
+  }
+
+  getSessionHistoryInfo(id: string): { realClaudeSessionId: string | null; cwd: string } | null {
+    const state = this.activeSessions.get(id);
+    if (!state) return null;
+    return { realClaudeSessionId: state.realClaudeSessionId, cwd: state.config.cwd };
   }
 
   getSessionByAlias(alias: string): SessionInfo | null {
@@ -136,11 +220,40 @@ export class SessionManager extends EventEmitter {
     return true;
   }
 
+  untrackSession(id: string): SessionInfo | null {
+    const state = this.activeSessions.get(id);
+    if (!state) return null;
+
+    // Stop the process if running
+    if (state.status === 'working') {
+      this.updateStatus(id, 'stopped');
+    }
+
+    state.tracked = false;
+    db.update(sessions).set({ tracked: false }).where(eq(sessions.id, id)).run();
+
+    const info = this.toSessionInfo(state);
+    this.emit('session:updated', info);
+    return info;
+  }
+
+  trackSession(id: string): SessionInfo | null {
+    const state = this.activeSessions.get(id);
+    if (!state) return null;
+
+    state.tracked = true;
+    db.update(sessions).set({ tracked: true }).where(eq(sessions.id, id)).run();
+
+    const info = this.toSessionInfo(state);
+    this.emit('session:updated', info);
+    return info;
+  }
+
   /**
    * Send a prompt to a session. Spawns a one-shot claude process,
    * streams output events, and resolves with the final result text.
    */
-  async sendPrompt(id: string, prompt: string): Promise<string> {
+  async sendPrompt(id: string, prompt: string, images?: ImageAttachment[]): Promise<string> {
     const state = this.activeSessions.get(id);
     if (!state) throw new Error(`Session ${id} not found`);
 
@@ -156,6 +269,7 @@ export class SessionManager extends EventEmitter {
       cwd: state.config.cwd,
       model: state.config.model,
       prompt,
+      images,
     });
 
     state.pid = proc.pid;
@@ -166,8 +280,8 @@ export class SessionManager extends EventEmitter {
       const chunks: string[] = [];
       const stderrLines: string[] = [];
 
+      // Broadcast all raw stream-json messages to frontend
       proc.on('message', (msg: ClaudeStreamMessage) => {
-        // Emit all messages to frontend for full streaming output
         this.emit('session:output', {
           sessionId: id,
           content: JSON.stringify(msg),
@@ -226,13 +340,19 @@ export class SessionManager extends EventEmitter {
         if (msg.result?.session_id && !state.realClaudeSessionId) {
           state.realClaudeSessionId = msg.result.session_id;
         }
-        // Emit cost/duration metadata
+        // Emit cost/duration metadata (fields are at top level of result message)
+        const raw = msg as Record<string, unknown>;
         this.emit('session:result_meta', {
           sessionId: id,
-          costUsd: msg.result?.cost_usd ?? 0,
-          durationMs: msg.result?.duration_ms ?? 0,
-          model: msg.message?.model ?? state.config.model,
+          costUsd: (raw.total_cost_usd as number) ?? 0,
+          durationMs: (raw.duration_ms as number) ?? 0,
+          model: (raw.model as string) ?? state.config.model,
         });
+        // Update summary with latest result (truncated)
+        if (resultText) {
+          state.summary = resultText.slice(0, 500);
+          db.update(sessions).set({ summary: state.summary }).where(eq(sessions.id, id)).run();
+        }
         state.lastActivityAt = new Date();
         this.updateStatus(id, 'idle');
         state.pid = null;
@@ -287,6 +407,7 @@ export class SessionManager extends EventEmitter {
         pid: state.pid,
         lastActivityAt: state.lastActivityAt.toISOString(),
         currentTaskId: state.currentTaskId,
+        realClaudeSessionId: state.realClaudeSessionId,
       })
       .where(eq(sessions.id, id))
       .run();
@@ -302,9 +423,11 @@ export class SessionManager extends EventEmitter {
       cwd: state.config.cwd,
       pid: state.pid,
       model: state.config.model,
-      createdAt: state.lastActivityAt.toISOString(),
+      createdAt: state.createdAt.toISOString(),
       lastActivityAt: state.lastActivityAt.toISOString(),
       currentTaskId: state.currentTaskId,
+      tracked: state.tracked,
+      summary: state.summary,
     };
   }
 }

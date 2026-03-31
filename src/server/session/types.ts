@@ -30,9 +30,12 @@ export interface SessionState {
   config: SessionConfig;
   status: SessionStatus;
   pid: number | null;
+  createdAt: Date;
   lastActivityAt: Date;
   currentTaskId: string | null;
   outputBuffer: string[];
   /** The actual Claude CLI session ID returned from the first invocation */
   realClaudeSessionId: string | null;
+  tracked: boolean;
+  summary: string | null;
 }

@@ -8,6 +8,7 @@ import type {
   LoopConfigInfo,
   StartLoopRequest,
   TaskPhase,
+  ImageAttachment,
 } from '../../shared/types.js';
 
 const BASE = '/api';
@@ -25,17 +26,37 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 // Sessions
-export const getSessions = () => request<SessionInfo[]>('/sessions');
+export const getSessions = (tracked?: boolean) =>
+  request<SessionInfo[]>(`/sessions${tracked !== undefined ? `?tracked=${tracked}` : ''}`);
+export const getAllSessions = () => request<SessionInfo[]>('/sessions');
+export const getTrackedSessions = () => request<SessionInfo[]>('/sessions?tracked=true');
 export const createSession = (data: CreateSessionRequest) =>
   request<SessionInfo>('/sessions', { method: 'POST', body: JSON.stringify(data) });
 export const deleteSession = (id: string) =>
   request<{ ok: boolean }>(`/sessions/${id}`, { method: 'DELETE' });
+export const untrackSession = (id: string) =>
+  request<SessionInfo>(`/sessions/${id}/untrack`, { method: 'POST', body: '{}' });
+export const trackSession = (id: string) =>
+  request<SessionInfo>(`/sessions/${id}/track`, { method: 'POST', body: '{}' });
 export const updateSession = (id: string, data: { name?: string; alias?: string }) =>
   request<SessionInfo>(`/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
-export const sendPrompt = (id: string, prompt: string) =>
-  request<{ result: string }>(`/sessions/${id}/prompt`, { method: 'POST', body: JSON.stringify({ prompt }) });
+export const sendPrompt = (id: string, prompt: string, images?: ImageAttachment[]) =>
+  request<{ result: string }>(`/sessions/${id}/prompt`, {
+    method: 'POST',
+    body: JSON.stringify({ prompt, images: images?.length ? images : undefined }),
+  });
 export const getSessionOutput = (id: string) =>
   request<{ output: string[] }>(`/sessions/${id}/output`);
+
+export interface HistoryMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  thinking?: string;
+  toolUse?: { name: string; input: string }[];
+  timestamp: string;
+}
+export const getSessionHistory = (id: string) =>
+  request<{ messages: HistoryMessage[] }>(`/sessions/${id}/history`);
 
 // Tasks
 export const getTasks = (phase?: TaskPhase) =>
@@ -88,6 +109,33 @@ export interface BrowseResult {
   parent: string;
   entries: DirEntry[];
 }
+// Tags
+export interface TagInfo {
+  id: string;
+  name: string;
+  color: string;
+  createdAt: string;
+}
+export interface SessionTagAssignment {
+  id: string;
+  sessionId: string;
+  tagId: string;
+}
+export const getTags = () => request<TagInfo[]>('/tags');
+export const createTag = (name: string, color?: string) =>
+  request<TagInfo>('/tags', { method: 'POST', body: JSON.stringify({ name, color }) });
+export const deleteTag = (id: string) =>
+  request<{ ok: boolean }>(`/tags/${id}`, { method: 'DELETE' });
+export const assignTag = (tagId: string, sessionId: string) =>
+  request<{ ok: boolean }>(`/tags/${tagId}/sessions/${sessionId}`, { method: 'POST', body: '{}' });
+export const removeTag = (tagId: string, sessionId: string) =>
+  request<{ ok: boolean }>(`/tags/${tagId}/sessions/${sessionId}`, { method: 'DELETE' });
+export const getSessionTags = (sessionId: string) =>
+  request<TagInfo[]>(`/sessions/${sessionId}/tags`);
+export const getTagAssignments = () =>
+  request<SessionTagAssignment[]>('/tags/assignments');
+
+// Directories
 export const getRepos = () => request<DirEntry[]>('/dirs/repos');
 export const browseDirs = (path?: string) =>
   request<BrowseResult>(`/dirs/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`);
