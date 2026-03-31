@@ -38,9 +38,12 @@ export class ClaudeProcess extends EventEmitter {
       '--model', this.config.model,
     ];
 
+    // Remove CLAUDECODE to prevent "nested session" detection in child processes
+    const { CLAUDECODE, ...cleanEnv } = process.env;
+
     this.proc = spawn('claude', args, {
       cwd: this.config.cwd,
-      env: { ...process.env },
+      env: cleanEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -184,9 +187,12 @@ export function spawnClaudeOneShot(config: {
     args.push('--session-id', config.sessionId);
   }
 
+  // Remove CLAUDECODE to prevent "nested session" detection in child processes
+  const { CLAUDECODE, ...cleanEnv } = process.env;
+
   const child = spawn('claude', args, {
     cwd: config.cwd,
-    env: { ...process.env },
+    env: cleanEnv,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
