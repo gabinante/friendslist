@@ -39,6 +39,7 @@ export interface SessionInfo {
   currentTaskId: string | null;
   tracked: boolean;
   summary: string | null;
+  containerId?: string;
 }
 
 export interface CreateSessionRequest {

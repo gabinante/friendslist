@@ -7,6 +7,8 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import type { ClaudeStreamMessage, SessionConfig } from './types.js';
 import type { ImageAttachment } from '../../shared/types.js';
+import type { DockerConfig } from '../config/docker.js';
+import { spawnClaudeOneShotDocker } from '../docker/container.js';
 
 /** Path to the Friendlist MCP server script */
 const MCP_SERVER_PATH = resolve(import.meta.dirname, '../mcp/server.ts');
@@ -38,9 +40,12 @@ export class ClaudeProcess extends EventEmitter {
       '--model', this.config.model,
     ];
 
+    // Remove CLAUDECODE to prevent "nested session" detection in child processes
+    const { CLAUDECODE, ...cleanEnv } = process.env;
+
     this.proc = spawn('claude', args, {
       cwd: this.config.cwd,
-      env: { ...process.env },
+      env: cleanEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -116,7 +121,22 @@ export function spawnClaudeOneShot(config: {
   prompt: string;
   images?: ImageAttachment[];
   permissionMode?: string;
+  dockerConfig?: DockerConfig;
 }): ClaudeProcess {
+  // Docker code path: delegate to container spawner
+  if (config.dockerConfig?.enabled) {
+    return spawnClaudeOneShotDocker({
+      sessionId: config.sessionId,
+      resumeSessionId: config.resumeSessionId,
+      sessionName: config.sessionName,
+      cwd: config.cwd,
+      model: config.model,
+      prompt: config.prompt,
+      images: config.images,
+      dockerConfig: config.dockerConfig,
+    });
+  }
+
   const proc = new ClaudeProcess({
     id: config.sessionId,
     claudeSessionId: config.sessionId,
@@ -184,9 +204,12 @@ export function spawnClaudeOneShot(config: {
     args.push('--session-id', config.sessionId);
   }
 
+  // Remove CLAUDECODE to prevent "nested session" detection in child processes
+  const { CLAUDECODE, ...cleanEnv } = process.env;
+
   const child = spawn('claude', args, {
     cwd: config.cwd,
-    env: { ...process.env },
+    env: cleanEnv,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 

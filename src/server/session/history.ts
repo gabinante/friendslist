@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from 'fs';
+import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
 import { join, basename } from 'path';
 import { homedir } from 'os';
 
@@ -26,10 +26,21 @@ function cwdToProjectDir(cwd: string): string {
   return cwd.replace(/\//g, '-');
 }
 
-/** Get the path to a Claude CLI JSONL conversation file */
+/** Get the path to a Claude CLI JSONL conversation file (checks host and Docker data dirs) */
 function getJsonlPath(realClaudeSessionId: string, cwd: string): string {
   const projectDir = cwdToProjectDir(cwd);
-  return join(homedir(), '.claude', 'projects', projectDir, `${realClaudeSessionId}.jsonl`);
+  const filename = `${realClaudeSessionId}.jsonl`;
+
+  // Check host path first
+  const hostPath = join(homedir(), '.claude', 'projects', projectDir, filename);
+  if (existsSync(hostPath)) return hostPath;
+
+  // Check Docker data path (bind-mounted claude-data dir)
+  const dockerPath = join(homedir(), '.friendlist', 'claude-data', 'projects', projectDir, filename);
+  if (existsSync(dockerPath)) return dockerPath;
+
+  // Return host path as default (will fail gracefully in callers)
+  return hostPath;
 }
 
 /** Extract text content from a message's content field */
@@ -164,24 +175,33 @@ export interface DiscoveredSession {
  * Returns metadata for each discovered session.
  */
 export function discoverClaudeSessions(): DiscoveredSession[] {
-  const projectsDir = join(homedir(), '.claude', 'projects');
-  let projectDirs: string[];
-  try {
-    projectDirs = readdirSync(projectsDir).filter(d => {
-      try {
-        return statSync(join(projectsDir, d)).isDirectory();
-      } catch {
-        return false;
+  // Search both host and Docker data directories
+  const searchDirs = [
+    join(homedir(), '.claude', 'projects'),
+    join(homedir(), '.friendlist', 'claude-data', 'projects'),
+  ];
+
+  let projectDirs: { dirPath: string; name: string }[] = [];
+  for (const projectsDir of searchDirs) {
+    try {
+      const dirs = readdirSync(projectsDir).filter(d => {
+        try {
+          return statSync(join(projectsDir, d)).isDirectory();
+        } catch {
+          return false;
+        }
+      });
+      for (const d of dirs) {
+        projectDirs.push({ dirPath: join(projectsDir, d), name: d });
       }
-    });
-  } catch {
-    return [];
+    } catch {
+      // Directory doesn't exist, skip
+    }
   }
 
   const discovered: DiscoveredSession[] = [];
 
-  for (const dir of projectDirs) {
-    const dirPath = join(projectsDir, dir);
+  for (const { dirPath } of projectDirs) {
 
     let files: string[];
     try {

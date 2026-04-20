@@ -18,6 +18,9 @@ import { registerNotifyRoutes } from './notify/router.js';
 import { registerDirRoutes } from './dirs/router.js';
 import { registerTagRoutes } from './tags/router.js';
 import { registerToolRoutes } from './mcp/router.js';
+import { loadDockerConfig } from './config/docker.js';
+import { ensureImageExists } from './docker/image-builder.js';
+import { cleanupOrphans } from './docker/lifecycle.js';
 
 // Ensure tables exist
 import { db } from './db/connection.js';
@@ -139,9 +142,18 @@ async function main() {
   await app.register(cors, { origin: true });
   await app.register(websocket);
 
+  // Load Docker config and initialize if enabled
+  const dockerConfig = loadDockerConfig();
+  if (dockerConfig.enabled) {
+    console.log('Docker sandboxing enabled — preparing container environment...');
+    cleanupOrphans();
+    await ensureImageExists(dockerConfig);
+    console.log('Docker sandboxing ready');
+  }
+
   // Initialize services
   const notifier = new Notifier();
-  const sessionManager = new SessionManager();
+  const sessionManager = new SessionManager(dockerConfig.enabled ? dockerConfig : undefined);
   const taskTracker = new TaskTracker();
   const messageBus = new MessageBus();
   const loopController = new LoopController(sessionManager, notifier);
