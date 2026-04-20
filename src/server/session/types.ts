@@ -38,4 +38,6 @@ export interface SessionState {
   realClaudeSessionId: string | null;
   tracked: boolean;
   summary: string | null;
+  /** Docker container name, if running in Docker mode */
+  containerId?: string;
 }

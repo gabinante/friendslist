@@ -7,12 +7,16 @@ import { spawnClaudeOneShot } from './process.js';
 import { discoverClaudeSessions } from './history.js';
 import type { SessionConfig, SessionState, ClaudeStreamMessage } from './types.js';
 import type { SessionInfo, SessionStatus, CreateSessionRequest, ImageAttachment } from '../../shared/types.js';
+import type { DockerConfig } from '../config/docker.js';
+import { killContainer } from '../docker/lifecycle.js';
 
 export class SessionManager extends EventEmitter {
   private activeSessions = new Map<string, SessionState>();
+  private dockerConfig?: DockerConfig;
 
-  constructor() {
+  constructor(dockerConfig?: DockerConfig) {
     super();
+    this.dockerConfig = dockerConfig;
     this.loadFromDb();
     this.importDiscoveredSessions();
   }
@@ -270,7 +274,13 @@ export class SessionManager extends EventEmitter {
       model: state.config.model,
       prompt,
       images,
+      dockerConfig: this.dockerConfig,
     });
+
+    // Track container name in Docker mode
+    if (this.dockerConfig?.enabled) {
+      state.containerId = `friendlist-session-${invocationId}`;
+    }
 
     state.pid = proc.pid;
     this.persistState(id);
@@ -428,6 +438,7 @@ export class SessionManager extends EventEmitter {
       currentTaskId: state.currentTaskId,
       tracked: state.tracked,
       summary: state.summary,
+      containerId: state.containerId,
     };
   }
 }

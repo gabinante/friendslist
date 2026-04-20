@@ -7,6 +7,8 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import type { ClaudeStreamMessage, SessionConfig } from './types.js';
 import type { ImageAttachment } from '../../shared/types.js';
+import type { DockerConfig } from '../config/docker.js';
+import { spawnClaudeOneShotDocker } from '../docker/container.js';
 
 /** Path to the Friendlist MCP server script */
 const MCP_SERVER_PATH = resolve(import.meta.dirname, '../mcp/server.ts');
@@ -119,7 +121,22 @@ export function spawnClaudeOneShot(config: {
   prompt: string;
   images?: ImageAttachment[];
   permissionMode?: string;
+  dockerConfig?: DockerConfig;
 }): ClaudeProcess {
+  // Docker code path: delegate to container spawner
+  if (config.dockerConfig?.enabled) {
+    return spawnClaudeOneShotDocker({
+      sessionId: config.sessionId,
+      resumeSessionId: config.resumeSessionId,
+      sessionName: config.sessionName,
+      cwd: config.cwd,
+      model: config.model,
+      prompt: config.prompt,
+      images: config.images,
+      dockerConfig: config.dockerConfig,
+    });
+  }
+
   const proc = new ClaudeProcess({
     id: config.sessionId,
     claudeSessionId: config.sessionId,
